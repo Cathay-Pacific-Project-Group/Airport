@@ -408,4 +408,80 @@ public class DashboardController {
         }
         return result;
     }
+
+    // --- User Maintenance Endpoints ---
+
+    // a. List all users
+    @GetMapping("/users")
+    public List<Map<String, Object>> listUsers() {
+        logger.info("Received GET /api/users request");
+        String sql = "SELECT Employee_ID, Name, Encry_Pw AS Password, Permission FROM EmployeeInfo";
+        List<Map<String, Object>> users = jdbcTemplate.query(sql, (rs, rowNum) -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("employeeID", rs.getString("Employee_ID"));
+            map.put("name", rs.getString("Name"));
+            map.put("password", rs.getString("Password"));
+            map.put("permission", rs.getString("Permission"));
+            return map;
+        });
+        logger.info("Returned {} users", users.size());
+        return users;
+    }
+
+    // b. Add a new user
+    @PostMapping("/users")
+    public Map<String, Object> addUser(@RequestBody Map<String, Object> userData) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String sql = "INSERT INTO EmployeeInfo (Employee_ID, Name, Encry_Pw, Permission) VALUES (?, ?, ?, ?)";
+            int inserted = jdbcTemplate.update(sql,
+                userData.get("employeeID"),
+                userData.get("name"),
+                userData.get("password"),
+                userData.get("permission")
+            );
+            if (inserted > 0) {
+                result.put("success", true);
+                result.put("message", "User added successfully.");
+            } else {
+                result.put("success", false);
+                result.put("message", "Failed to add user.");
+            }
+        } catch (Exception ex) {
+            logger.error("Error adding user: {}", ex.getMessage());
+            result.put("success", false);
+            result.put("message", "Error adding user: " + ex.getMessage());
+        }
+        return result;
+    }
+
+    // c. Edit user info
+    @PutMapping("/users/{employeeID}")
+    public Map<String, Object> editUser(
+            @PathVariable("employeeID") String employeeID,
+            @RequestBody Map<String, Object> userData
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String sql = "UPDATE EmployeeInfo SET Name = ?, Encry_Pw = ?, Permission = ? WHERE Employee_ID = ?";
+            int updated = jdbcTemplate.update(sql,
+                userData.get("name"),
+                userData.get("password"),
+                userData.get("permission"),
+                employeeID
+            );
+            if (updated > 0) {
+                result.put("success", true);
+                result.put("message", "User updated successfully.");
+            } else {
+                result.put("success", false);
+                result.put("message", "User not found or not updated.");
+            }
+        } catch (Exception ex) {
+            logger.error("Error updating user: {}", ex.getMessage());
+            result.put("success", false);
+            result.put("message", "Error updating user: " + ex.getMessage());
+        }
+        return result;
+    }
 }
