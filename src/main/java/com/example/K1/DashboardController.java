@@ -41,31 +41,81 @@ public class DashboardController {
 
     // Get routine(s) for an employee or all if admin
     @GetMapping("/routine")
-    public List<Map<String, Object>> getRoutine(@RequestParam(required = false) String employeeID) {
-        logger.info("Received GET /api/routine request from employeeID [{}]", employeeID);
-        if (employeeID == null || employeeID.isEmpty()) {
-            logger.warn("Routine request missing employeeID.");
-            return Collections.emptyList();
-        }
+    public List<Map<String, Object>> getRoutine(
+        @RequestParam(required = false) String employeeID,
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false, defaultValue = "Ticket_Date") String sortBy,
+        @RequestParam(required = false, defaultValue = "desc") String order
+    ) {
+        logger.info("Received GET /api/routine request from employeeID [{}], search [{}], sortBy [{}], order [{}]", employeeID, search, sortBy, order);
 
         // Check permission
         String roleSql = "SELECT Permission FROM EmployeeInfo WHERE Employee_ID = ?";
         String permission = jdbcTemplate.queryForObject(roleSql, new Object[]{employeeID}, String.class);
 
-        String sql;
-        Object[] params;
-        if ("Admin".equalsIgnoreCase(permission)) {
-            logger.info("Dashboard routine request for ALL employees by Admin [{}]", employeeID);
-            sql = "SELECT JobID, Ticket_Date, SN, Flight, [From], [To], STA, ETA, ATA, Remarks, StaffInCharge, Supervisor " +
-                  "FROM Routine ORDER BY Ticket_Date DESC";
-            params = new Object[]{};
-        } else {
-            logger.info("Dashboard routine request for StaffInCharge [{}] (staff)", employeeID);
-            sql = "SELECT JobID, Ticket_Date, SN, Flight, [From], [To], STA, ETA, ATA, Remarks, StaffInCharge, Supervisor " +
-                  "FROM Routine WHERE StaffInCharge = ? ORDER BY Ticket_Date DESC";
-            params = new Object[]{employeeID};
+        StringBuilder sql = new StringBuilder("SELECT JobID, Ticket_Date, SN, Flight, [From], [To], ");
+        sql.append("CONVERT(VARCHAR(8), STA, 108) as STA, ");
+        sql.append("CONVERT(VARCHAR(8), ETA, 108) as ETA, ");
+        sql.append("CONVERT(VARCHAR(8), ATA, 108) as ATA, ");
+        sql.append("Remarks, StaffInCharge, Supervisor FROM Routine WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+
+        if (!"Admin".equalsIgnoreCase(permission)) {
+            sql.append(" AND StaffInCharge = ?");
+            params.add(employeeID);
         }
-        List<Map<String, Object>> routines = jdbcTemplate.query(sql, params, (rs, rowNum) -> {
+
+        // Search functionality - all fields are searchable
+        if (search != null && !search.isEmpty()) {
+            sql.append(" AND (");
+            sql.append("JobID LIKE ? OR ");
+            sql.append("Ticket_Date LIKE ? OR ");
+            sql.append("SN LIKE ? OR ");
+            sql.append("Flight LIKE ? OR ");
+            sql.append("[From] LIKE ? OR ");
+            sql.append("[To] LIKE ? OR ");
+            sql.append("STA LIKE ? OR ");
+            sql.append("ETA LIKE ? OR ");
+            sql.append("ATA LIKE ? OR ");
+            sql.append("Remarks LIKE ? OR ");
+            sql.append("StaffInCharge LIKE ? OR ");
+            sql.append("Supervisor LIKE ?");
+            sql.append(")");
+            
+            String like = "%" + search + "%";
+            // add 12 parameters (corresponding to 12 LIKE conditions)
+            for (int i = 0; i < 12; i++) {
+                params.add(like);
+            }
+        }
+
+        // Map frontend field names to database field names
+        Map<String, String> fieldMapping = new HashMap<>();
+        fieldMapping.put("date", "Ticket_Date");
+        fieldMapping.put("sn", "SN");
+        fieldMapping.put("flight", "Flight");
+        fieldMapping.put("from", "From");
+        fieldMapping.put("to", "To");
+        fieldMapping.put("sta", "STA");
+        fieldMapping.put("eta", "ETA");
+        fieldMapping.put("ata", "ATA");
+        fieldMapping.put("remarks", "Remarks");
+        fieldMapping.put("employeeID", "StaffInCharge");
+        fieldMapping.put("supervisor", "Supervisor");
+        fieldMapping.put("jobID", "JobID");
+
+        // Get actual database field name
+        String actualSortBy = fieldMapping.getOrDefault(sortBy, sortBy);
+
+        // Validate sort field to prevent SQL injection
+        if (!fieldMapping.containsKey(sortBy) && !sortBy.equals("Ticket_Date")) {
+            actualSortBy = "Ticket_Date"; // Default sort field
+        }
+
+        // Sort functionality
+        sql.append(" ORDER BY ").append(actualSortBy).append(" ").append(order.equalsIgnoreCase("asc") ? "ASC" : "DESC");
+
+        List<Map<String, Object>> routines = jdbcTemplate.query(sql.toString(), params.toArray(), (rs, rowNum) -> {
             Map<String, Object> map = new HashMap<>();
             map.put("JobID", rs.getString("JobID"));
             map.put("date", rs.getString("Ticket_Date"));
